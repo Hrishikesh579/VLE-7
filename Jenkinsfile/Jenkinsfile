@@ -1,0 +1,146 @@
+
+pipeline {
+    agent any
+
+    triggers {
+        pollSCM('H/2 * * * *')
+    }
+
+    environment {
+        EC2_HOST = '18.61.25.99'
+        APP_NAME = 'vle7-monitoring-app'
+        DEPLOYMENT = 'vle7-app'
+        CONTAINER_NAME = 'app'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate Project') {
+            steps {
+                bat '''
+                    if not exist app\\Dockerfile exit /b 1
+                    if not exist app\\server.py exit /b 1
+                    if not exist app\\index.html exit /b 1
+                    echo Project files validated successfully.
+                '''
+            }
+        }
+
+        stage('Test Application') {
+            steps {
+                bat '''
+                    docker build --check ./app
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )
+                ]) {
+                    bat '''
+                        docker build ^
+                          -t %DOCKERHUB_USER%/%APP_NAME%:%BUILD_NUMBER% ^
+                          -t %DOCKERHUB_USER%/%APP_NAME%:latest ^
+                          ./app
+                    '''
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        echo %DOCKERHUB_TOKEN%| docker login -u %DOCKERHUB_USER% --password-stdin
+
+                        if errorlevel 1 exit /b 1
+
+                        docker push %DOCKERHUB_USER%/%APP_NAME%:%BUILD_NUMBER%
+                        if errorlevel 1 exit /b 1
+
+                        docker push %DOCKERHUB_USER%/%APP_NAME%:latest
+                        if errorlevel 1 exit /b 1
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    ),
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    bat '''
+                        ssh -i "%SSH_KEY%" ^
+                          -o StrictHostKeyChecking=accept-new ^
+                          %SSH_USER%@%EC2_HOST% ^
+                          "sudo kubectl set image deployment/%DEPLOYMENT% %CONTAINER_NAME%=%DOCKERHUB_USER%/%APP_NAME%:%BUILD_NUMBER% && sudo kubectl rollout status deployment/%DEPLOYMENT% --timeout=180s"
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    bat '''
+                        ssh -i "%SSH_KEY%" ^
+                          -o StrictHostKeyChecking=accept-new ^
+                          %SSH_USER%@%EC2_HOST% ^
+                          "sudo kubectl get pods -l app=vle7-app && sudo kubectl get deployment vle7-app"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'CI/CD pipeline completed successfully.'
+        }
+
+        failure {
+            echo 'CI/CD pipeline failed. Inspect the failed stage and console output.'
+        }
+
+        always {
+            echo 'Jenkins pipeline execution finished.'
+        }
+    }
+}
