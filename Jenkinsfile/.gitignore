@@ -1,0 +1,17 @@
+.env
+monitoring/.env
+
+*.pem
+*.key
+
+kubeconfig
+kubeconfig.yaml
+
+__pycache__/
+*.pyc
+
+.venv/
+venv/
+
+.idea/
+.vscode/

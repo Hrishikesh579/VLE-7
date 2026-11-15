@@ -1,0 +1,93 @@
+groups:
+  - name: vle7-alerts
+
+    rules:
+
+      # EC2 Node Exporter is unreachable
+      - alert: EC2NodeExporterDown
+        expr: up{job="ec2-node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: EC2 Node Exporter is down
+          description: Prometheus cannot collect EC2 metrics.
+
+      # Application is unreachable
+      - alert: ApplicationDown
+        expr: up{job="vle7-application"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: VLE-7 application is down
+          description: The application metrics endpoint is unreachable.
+
+      # Kubernetes metrics are unavailable
+      - alert: KubernetesMetricsDown
+        expr: up{job="kubernetes-state"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kubernetes state metrics are unavailable
+          description: Prometheus cannot scrape kube-state-metrics.
+
+      # EC2 CPU utilization exceeds 80%
+      - alert: HighCPUUsage
+        expr: |
+          100 * (1 - avg by(instance) (
+            rate(node_cpu_seconds_total{job="ec2-node",mode="idle"}[5m])
+          )) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: High EC2 CPU usage
+          description: EC2 CPU utilization has exceeded 80%.
+
+      # EC2 memory utilization exceeds 85%
+      - alert: HighMemoryUsage
+        expr: |
+          100 * (
+            1 - node_memory_MemAvailable_bytes{job="ec2-node"}
+            / node_memory_MemTotal_bytes{job="ec2-node"}
+          ) > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: High EC2 memory usage
+          description: EC2 memory utilization has exceeded 85%.
+
+      # EC2 root filesystem usage exceeds 85%
+      - alert: HighDiskUsage
+        expr: |
+          100 * (
+            1 - node_filesystem_avail_bytes{
+              job="ec2-node",
+              mountpoint="/",
+              fstype!~"tmpfs|overlay"
+            }
+            / node_filesystem_size_bytes{
+              job="ec2-node",
+              mountpoint="/",
+              fstype!~"tmpfs|overlay"
+            }
+          ) > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: High EC2 disk usage
+          description: Root filesystem usage has exceeded 85%.
+
+      # Kubernetes containers are restarting repeatedly
+      - alert: KubernetesContainerRestarts
+        expr: increase(kube_pod_container_status_restarts_total[5m]) > 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kubernetes container restarts detected
+          description: A container has restarted more than three times in five minutes.

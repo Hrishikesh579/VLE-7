@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: vle7-app
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: vle7-app
+
+  template:
+    metadata:
+      labels:
+        app: vle7-app
+
+    spec:
+      containers:
+        - name: app
+          image: hrishikesh13579/vle7-monitoring-app:latest
+
+          ports:
+            - containerPort: 8080
+
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
